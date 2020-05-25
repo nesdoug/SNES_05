@@ -38,11 +38,12 @@ main:
 	
 	
 ; COPY sprites to sprite buffer
-	BLOCK_MOVE  16, Sprites, OAM_BUFFER
+	BLOCK_MOVE  12, Sprites, OAM_BUFFER
 	
 ; COPY just 1 high table number	
 	A8
-	lda #$AA
+	lda #$2A ;= 00101010 = flip all the size bits to large
+			 ;will give us 16x16 tiles
 	sta OAM_BUFFER2
 	
 	
@@ -146,9 +147,8 @@ clear_sp_buffer:
 Sprites:
 ;4 bytes per sprite = x, y, tile #, attribute
 .byte $80, $80, $00, SPR_PRIOR_2	
-.byte $90, $80, $02, SPR_PRIOR_2	
 .byte $80, $90, $20, SPR_PRIOR_2	
-.byte $90, $90, $22, SPR_PRIOR_2 
+.byte $7c, $90, $22, SPR_PRIOR_2	
 
 
 ;the attribute bits are
@@ -166,7 +166,7 @@ Sprites:
 
 ;note, high table bits (2 per sprite)
 ;will always be X=0 and size =1
-;1010 1010 = $AA	
+;0010 1010 = $2A	
 	
 	
 	
