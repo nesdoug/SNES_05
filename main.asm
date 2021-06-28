@@ -3,7 +3,8 @@
 .p816
 .smart
 
-.include "defines.asm"
+.include "regs.asm"
+.include "variables.asm"
 .include "macros.asm"
 .include "init.asm"
 
@@ -11,81 +12,42 @@
 
 
 
-
-.segment "BSS"
-
-PAL_BUFFER: .res 512
-
-OAM_BUFFER: .res 512 ;low table
-OAM_BUFFER2: .res 32 ;high table
-
-
 .segment "CODE"
 
 ; enters here in forced blank
-main:
-.a16 ; just a standardized setting from init code
+Main:
+.a16 ; the setting from init code
 .i16
 	phk
 	plb
-	
-	jsr clear_sp_buffer
+
 	
 	
 ; COPY PALETTES to PAL_BUFFER	
 ;	BLOCK_MOVE  length, src_addr, dst_addr
 	BLOCK_MOVE  288, BG_Palette, PAL_BUFFER
-	
+; 256 for BG palette, 32 for sprite palette	
+; DMA from PAL_BUFFER to CGRAM
+	jsr DMA_Palette ; in init.asm
 	
 ; COPY sprites to sprite buffer
 	BLOCK_MOVE  12, Sprites, OAM_BUFFER
+	A8 ;block move will put AXY16. Undo that.
 	
 ; COPY just 1 high table number	
-	A8
-	lda #$2A ;= 00101010 = flip all the size bits to large
+	lda #$6A ;= 01 101010 = flip all the size bits to large
 			 ;will give us 16x16 tiles
+			 ;leave the 4th sprite small and in negative x
 	sta OAM_BUFFER2
 	
-	
-; DMA from PAL_BUFFER to CGRAM
-	A8
-	stz pal_addr ; $2121 cg address = zero
-
-	stz $4300 ; transfer mode 0 = 1 register write once
-	lda #$22  ; $2122
-	sta $4301 ; destination, pal data
-	ldx #.loword(PAL_BUFFER)
-	stx $4302 ; source
-	lda #^PAL_BUFFER
-	sta $4304 ; bank
-	ldx #512 ; full palette size
-	stx $4305 ; length
-	lda #1
-	sta $420b ; start dma, channel 0
-	
-	
 ; DMA from OAM_BUFFER to the OAM RAM
-	ldx #$0000
-	stx oam_addr_L ;$2102 (and 2103)
-	
-	stz $4300 ; transfer mode 0 = 1 register write once
-	lda #4 ;$2104 oam data
-	sta $4301 ; destination, oam data
-	ldx #.loword(OAM_BUFFER)
-	stx $4302 ; source
-	lda #^OAM_BUFFER
-	sta $4304 ; bank
-	ldx #544
-	stx $4305 ; length
-	lda #1
-	sta $420b ; start dma, channel 0
-	
+	jsr DMA_OAM ; in init.asm
 	
 ; DMA from Spr_Tiles to VRAM	
 	lda #V_INC_1 ; the value $80
-	sta vram_inc  ; $2115 = set the increment mode +1
+	sta VMAIN  ; $2115 = set the increment mode +1
 	ldx #$4000
-	stx vram_addr ; set an address in the vram of $4000
+	stx VMADDL ; set an address in the vram of $4000
 	
 	lda #1
 	sta $4300 ; transfer mode, 2 registers 1 write
@@ -100,7 +62,8 @@ main:
 							   ;the size of the tiles for us
 	stx $4305 ; length
 	lda #1
-	sta $420b ; start dma, channel 0	
+	sta MDMAEN ; $420b start dma, channel 0
+	
 	
 ;$2101 sssnn-bb
 ;sss = sprite sizes, 000 = 8x8 and 16x16 sprites
@@ -108,43 +71,46 @@ main:
 ;-bb = where are the sprite tiles, in steps of $2000
 ;that upper bit is useless, as usual, so I marked it with a dash -
 	lda #2 ;sprite tiles at $4000
-	sta spr_addr_size ;= $2101
+	sta OBSEL ;= $2101
 	
 	lda #1 ; mode 1, tilesize 8x8 all
-	sta bg_size_mode ; $2105
+	sta BGMODE ; $2105
 
 ;allow sprites on the main screen	
 	lda #SPR_ON ; $10, only show sprites
-	sta main_screen ; $212c
+	sta TM ; $212c
 	
 	lda #FULL_BRIGHT ; $0f = turn the screen on, full brighness
-	sta fb_bright ; $2100
+	sta INIDISP ; $2100
 
 
-InfiniteLoop:	
-	jmp InfiniteLoop
-	
-	
-	
-clear_sp_buffer:
-.a8
-.i16
-	php
+Infinite_Loop:	
 	A8
 	XY16
-	lda #224 ;put all y values just below the screen
-	ldx #$0000
-	ldy #128 ;number of sprites
-@loop:
-	sta OAM_BUFFER+1, x
-	inx
-	inx
-	inx
-	inx ;add 4 to x
-	dey
-	bne @loop
-	plp
+	jsr Wait_NMI
+	
+	;code goes here
+
+	jmp Infinite_Loop
+	
+	
+	
+Wait_NMI:
+.a8
+.i16
+;should work fine regardless of size of A
+	lda in_nmi ;load A register with previous in_nmi
+@check_again:	
+	WAI ;wait for an interrupt
+	cmp in_nmi	;compare A to current in_nmi
+				;wait for it to change
+				;make sure it was an nmi interrupt
+	beq @check_again
 	rts
+	
+	
+	
+
 	
 
 Sprites:
